@@ -4,21 +4,21 @@ import { randomUUID } from "node:crypto";
 
 // ../gate/dist/gate.js
 var WAIT_DEFAULT_S = 1800;
-var USAGE = `intentic-gate \u2014 run an intentic release gate and exit on its verdict
+var USAGE = `intentic-gate: run an intentic release gate and exit on its verdict
 
 usage: intentic-gate [options] [request...]
 
-The request \u2014 what this pipeline knows: commit, branch, preview URL \u2014 is the arguments joined,
+The request, what this pipeline knows: commit, branch, preview URL, is the arguments joined,
 or stdin when none are given (so \`git log -1 | intentic-gate\` works).
 
 options:
   --url <url>       the gate's webhook URL, token and all (or env INTENTIC_GATE_URL)
   --wait <seconds>  how long the gate holds the connection (default ${WAIT_DEFAULT_S}; the server caps at 3h)
-  --blocked <code>  exit code for a blocked verdict (default 0 \u2014 "could not judge" is not a failed build)
+  --blocked <code>  exit code for a blocked verdict (default 0: "could not judge" is not a failed build)
   -h, --help        this text
 
 exit codes:  0 pass (and blocked, unless --blocked says otherwise) \xB7 1 fail \xB7 2 the exchange itself
-failed \u2014 wrong token, no such gate, daily ceiling reached, network. 2 is never a verdict: it means
+failed, wrong token, no such gate, daily ceiling reached, network. 2 is never a verdict: it means
 the pipeline's wiring needs a person, not that the product does.`;
 var targetOf = (url, waitS) => {
   const target = new URL(url);
@@ -67,7 +67,7 @@ var parseInputs = (env) => {
   try {
     path = new URL(url).pathname;
   } catch {
-    return { kind: "error", message: "the url input is not a URL \u2014 paste the door URL exactly as the sandbox hands it out" };
+    return { kind: "error", message: "the url input is not a URL, paste the door URL exactly as the sandbox hands it out" };
   }
   const door = doorOf(path);
   if (door === void 0) {
@@ -183,7 +183,7 @@ if (inputs.door === "fire") {
   if (!response2.ok) {
     wiring(`the automation answered ${response2.status}: ${detailOf(await response2.text())}`);
   }
-  console.log("woke the agent \u2014 the automation accepted the payload and the run continues without this workflow");
+  console.log("woke the agent: the automation accepted the payload and the run continues without this workflow");
   process.exit(0);
 }
 var event = (() => {
