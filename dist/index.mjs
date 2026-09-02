@@ -2,6 +2,9 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+// ../../_tools/base/dist/errors.js
+var errorMessage = (error) => error instanceof Error ? error.message : String(error);
+
 // ../gate/dist/gate.js
 var WAIT_DEFAULT_S = 1800;
 var USAGE = `intentic-gate: run an intentic release gate and exit on its verdict
@@ -178,7 +181,7 @@ if (inputs.door === "fire") {
   try {
     response2 = await fetch(inputs.url, { method: "POST", body: body2, signal: AbortSignal.timeout(6e4) });
   } catch (error) {
-    wiring(`the automation could not be reached: ${error instanceof Error ? error.message : String(error)}`);
+    wiring(`the automation could not be reached: ${errorMessage(error)}`);
   }
   if (!response2.ok) {
     wiring(`the automation answered ${response2.status}: ${detailOf(await response2.text())}`);
@@ -205,7 +208,7 @@ try {
     signal: AbortSignal.timeout(clientTimeoutMs(inputs.waitS))
   });
 } catch (error) {
-  wiring(`the gate could not be reached: ${error instanceof Error ? error.message : String(error)}`);
+  wiring(`the gate could not be reached: ${errorMessage(error)}`);
 }
 var text = await response.text();
 if (!response.ok) {
