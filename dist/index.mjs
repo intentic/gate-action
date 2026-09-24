@@ -38,7 +38,9 @@ var readCard = (body2) => {
     ...typeof attention === "object" && attention !== null ? { attention } : {}
   };
 };
-var IN_FLIGHT = /* @__PURE__ */ new Set(["running", "stopping", "dismissing", "resuming"]);
+var IN_FLIGHT = /* @__PURE__ */ new Set(["running", "stopping", "dismissing", "resuming", "landing"]);
+var FAILED = /* @__PURE__ */ new Set(["error", "interrupted", "conflict", "stopped"]);
+var COMPLETED = /* @__PURE__ */ new Set(["idle", "ready", "landed"]);
 var settledOf = (card) => {
   if (IN_FLIGHT.has(card.status)) {
     return void 0;
@@ -46,7 +48,13 @@ var settledOf = (card) => {
   if (card.status === "awaiting") {
     return "parked";
   }
-  return card.status === "error" || card.status === "interrupted" || card.status === "conflict" ? "failed" : "completed";
+  if (FAILED.has(card.status)) {
+    return "failed";
+  }
+  if (COMPLETED.has(card.status)) {
+    return "completed";
+  }
+  throw new RunExchangeError(`the agent card has a status this gate does not know: "${card.status}"`);
 };
 var PARKED_ON = [
   ["plan", "a plan waiting for approval"],
@@ -112,11 +120,14 @@ var answerOf = async (deps, what, url, init) => {
 };
 var runExchange = async (call, deps) => {
   const cardUrl = `${call.origin}/agents/${encodeURIComponent(call.conversationId)}`;
-  await answerOf(deps, "the agent", `${call.origin}/agent`, {
+  const receipt = await answerOf(deps, "the agent", `${call.origin}/agent`, {
     method: "POST",
     headers: headersFor(call),
     body: JSON.stringify(runRequestBody(call))
   });
+  if (receipt.delivered !== "started") {
+    throw new RunExchangeError(`conversation ${call.conversationId} already has a turn under way (this prompt was ${String(receipt.delivered)}), so its ending would not be this prompt's: give the step a conversation of its own`);
+  }
   const deadline = deps.now() + call.waitS * 1e3;
   let card;
   let status;
@@ -141,8 +152,20 @@ var runExchange = async (call, deps) => {
   if (!call.land || status !== "completed") {
     return outcome;
   }
-  const landed = await answerOf(deps, "the land", `${cardUrl}/land`, { method: "POST", headers: headersFor(call), body: "{}" });
-  return { ...outcome, landed: landed.landed === true };
+  const land = await answerOf(deps, "the land", `${cardUrl}/land`, { method: "POST", headers: headersFor(call), body: "{}" });
+  if (land.landed === true) {
+    return { ...outcome, landed: true };
+  }
+  if (land.held === true) {
+    return { ...outcome, landed: false };
+  }
+  const repos = Array.isArray(land.conflicts) ? land.conflicts.flatMap((conflict) => typeof conflict === "object" && conflict !== null && typeof conflict.repo === "string" ? [conflict.repo] : []) : [];
+  return {
+    ...outcome,
+    status: "failed",
+    landed: false,
+    summary: `The turn completed, but its land was refused${repos.length === 0 ? "" : ` in ${repos.join(", ")}`}: open the conversation to see what would not apply.`
+  };
 };
 
 // ../gate/dist/gate.js
@@ -349,17 +372,18 @@ if (parsed.kind === "error") {
   wiring(parsed.message);
 }
 var { inputs } = parsed;
-var eventText = (() => {
+var eventFile = (() => {
   const path = process.env["GITHUB_EVENT_PATH"];
   if (path === void 0 || path === "") {
-    return "";
+    return { text: "" };
   }
   try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return "";
+    return { text: readFileSync(path, "utf8") };
+  } catch (error) {
+    return { failure: `the runner's event payload at ${path} could not be read: ${errorMessage(error)}` };
   }
 })();
+var eventText = "text" in eventFile ? eventFile.text : "";
 if (inputs.door === "run") {
   const call = {
     origin: new URL(inputs.url).origin,
@@ -387,6 +411,9 @@ if (inputs.door === "run") {
   process.exit(runStepExitOf(outcome));
 }
 if (inputs.door === "fire") {
+  if (inputs.request === "" && "failure" in eventFile) {
+    wiring(eventFile.failure);
+  }
   const body2 = inputs.request !== "" ? inputs.request : eventText;
   let response2;
   try {
