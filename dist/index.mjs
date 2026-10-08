@@ -22,11 +22,11 @@ var conversationIdFor = (env, random) => {
   const attempt = env["GITHUB_RUN_ATTEMPT"] ?? "1";
   return `ci-${runId}-${attempt}`.replaceAll(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64);
 };
-var readCard = (body2) => {
-  if (typeof body2 !== "object" || body2 === null) {
+var readCard = (body) => {
+  if (typeof body !== "object" || body === null) {
     return void 0;
   }
-  const { status, title, failure, branch, attention } = body2;
+  const { status, title, failure, branch, attention } = body;
   if (typeof status !== "string") {
     return void 0;
   }
@@ -94,28 +94,28 @@ exit codes:  0 completed \xB7 1 parked on a person, or failed \xB7 2 the exchang
 was still running at the deadline (it keeps working in the sandbox).`;
 var RunExchangeError = class extends Error {
 };
-var detailOf = (text2) => {
+var detailOf = (text) => {
   try {
-    const body2 = JSON.parse(text2);
-    return typeof body2.error === "string" ? body2.error : text2;
+    const body = JSON.parse(text);
+    return typeof body.error === "string" ? body.error : text;
   } catch {
-    return text2;
+    return text;
   }
 };
 var headersFor = (call) => ({ "x-intentic-control": call.token, "content-type": "application/json" });
 var answerOf = async (deps, what, url, init) => {
-  const response2 = await deps.fetch(url, init).catch((error) => {
+  const response = await deps.fetch(url, init).catch((error) => {
     throw new RunExchangeError(`${what} could not be reached: ${error instanceof Error ? error.message : String(error)}`);
   });
-  const text2 = await response2.text();
-  if (!response2.ok) {
-    const hint = response2.status === 403 && what === "the land" ? " (the token needs land scope)" : "";
-    throw new RunExchangeError(`${what} answered ${response2.status}: ${detailOf(text2)}${hint}`);
+  const text = await response.text();
+  if (!response.ok) {
+    const hint = response.status === 403 && what === "the land" ? " (the token needs land scope)" : "";
+    throw new RunExchangeError(`${what} answered ${response.status}: ${detailOf(text)}${hint}`);
   }
   try {
-    return JSON.parse(text2);
+    return JSON.parse(text);
   } catch {
-    throw new RunExchangeError(`${what}'s answer was not JSON: ${text2.slice(0, 200)}`);
+    throw new RunExchangeError(`${what}'s answer was not JSON: ${text.slice(0, 200)}`);
   }
 };
 var runExchange = async (call, deps) => {
@@ -197,11 +197,11 @@ var dialOf = (url, waitS) => {
 };
 var clientTimeoutMs = (waitS) => (waitS + 60) * 1e3;
 var OUTCOMES = /* @__PURE__ */ new Set(["pass", "fail", "blocked"]);
-var readVerdict = (body2) => {
-  if (typeof body2 !== "object" || body2 === null) {
+var readVerdict = (body) => {
+  if (typeof body !== "object" || body === null) {
     return void 0;
   }
-  const { outcome, reason, runId, value } = body2;
+  const { outcome, reason, runId, value } = body;
   if (typeof outcome !== "string" || !OUTCOMES.has(outcome) || typeof reason !== "string" || typeof runId !== "string") {
     return void 0;
   }
@@ -217,6 +217,41 @@ var exitOf = (verdict2, blockedExit) => {
     return 0;
   }
   return verdict2.outcome === "fail" ? 1 : blockedExit;
+};
+var GateExchangeError = class extends Error {
+};
+var gateExchange = async ({ url, waitS, request: request2 }, deps) => {
+  const reached = async () => {
+    const dial = dialOf(url, waitS);
+    const response = await deps.fetch(dial.url, {
+      method: "POST",
+      headers: dial.headers,
+      body: request2,
+      signal: AbortSignal.timeout(clientTimeoutMs(waitS))
+    });
+    return { ok: response.ok, status: response.status, text: await response.text() };
+  };
+  let answer;
+  try {
+    answer = await reached();
+  } catch (error) {
+    throw new GateExchangeError(`the gate could not be reached: ${errorMessage(error)}`);
+  }
+  const { ok, status, text } = answer;
+  if (!ok) {
+    throw new GateExchangeError(`the gate answered ${status}: ${detailOf(text)}`);
+  }
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = void 0;
+  }
+  const verdict2 = readVerdict(body);
+  if (verdict2 === void 0) {
+    throw new GateExchangeError(`the gate's answer was not a verdict: ${text.slice(0, 200)}`);
+  }
+  return verdict2;
 };
 
 // src/action.ts
@@ -414,16 +449,16 @@ if (inputs.door === "fire") {
   if (inputs.request === "" && "failure" in eventFile) {
     wiring(eventFile.failure);
   }
-  const body2 = inputs.request !== "" ? inputs.request : eventText;
-  let response2;
+  const body = inputs.request !== "" ? inputs.request : eventText;
+  let response;
   try {
     const dial = dialOf(inputs.url);
-    response2 = await fetch(dial.url, { method: "POST", headers: dial.headers, body: body2, signal: AbortSignal.timeout(6e4) });
+    response = await fetch(dial.url, { method: "POST", headers: dial.headers, body, signal: AbortSignal.timeout(6e4) });
   } catch (error) {
     wiring(`the automation could not be reached: ${errorMessage(error)}`);
   }
-  if (!response2.ok) {
-    wiring(`the automation answered ${response2.status}: ${detailOf(await response2.text())}`);
+  if (!response.ok) {
+    wiring(`the automation answered ${response.status}: ${detailOf(await response.text())}`);
   }
   console.log("woke the agent: the automation accepted the payload and the run continues without this workflow");
   process.exit(0);
@@ -439,31 +474,11 @@ var request = inputs.request !== "" ? inputs.request : defaultRequest(process.en
 if (request === "") {
   wiring("nothing to tell the agent: set `with: request` (no workflow context to compose one from)");
 }
-var response;
+var verdict;
 try {
-  const dial = dialOf(inputs.url, inputs.waitS);
-  response = await fetch(dial.url, {
-    method: "POST",
-    headers: dial.headers,
-    body: request,
-    signal: AbortSignal.timeout(clientTimeoutMs(inputs.waitS))
-  });
+  verdict = await gateExchange({ url: inputs.url, waitS: inputs.waitS, request }, { fetch });
 } catch (error) {
-  wiring(`the gate could not be reached: ${errorMessage(error)}`);
-}
-var text = await response.text();
-if (!response.ok) {
-  wiring(`the gate answered ${response.status}: ${detailOf(text)}`);
-}
-var body;
-try {
-  body = JSON.parse(text);
-} catch {
-  body = void 0;
-}
-var verdict = readVerdict(body);
-if (verdict === void 0) {
-  wiring(`the gate's answer was not a verdict: ${text.slice(0, 200)}`);
+  wiring(error instanceof GateExchangeError ? error.message : `the gate could not be reached: ${errorMessage(error)}`);
 }
 appendTo(process.env["GITHUB_OUTPUT"], outputLines(verdict, randomUUID()));
 appendTo(process.env["GITHUB_STEP_SUMMARY"], summaryOf(verdict));
