@@ -5,6 +5,25 @@ import { randomUUID } from "node:crypto";
 // ../../_tools/base/dist/errors.js
 var errorMessage = (error) => error instanceof Error ? error.message : String(error);
 
+// ../../_tools/base/dist/async.js
+var sleep = (ms, options) => new Promise((resolve) => {
+  const signal = options?.signal;
+  if (signal?.aborted === true) {
+    resolve();
+    return;
+  }
+  const done = () => {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", done);
+    resolve();
+  };
+  const timer = setTimeout(done, ms);
+  if (options?.unref === true) {
+    timer.unref?.();
+  }
+  signal?.addEventListener("abort", done, { once: true });
+});
+
 // ../gate/dist/run.js
 var RUN_WAIT_DEFAULT_S = 1800;
 var RUN_POLL_MS = 5e3;
@@ -431,7 +450,7 @@ if (inputs.door === "run") {
   };
   let outcome;
   try {
-    outcome = await runExchange(call, { fetch, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now: Date.now });
+    outcome = await runExchange(call, { fetch, sleep, now: Date.now });
   } catch (error) {
     wiring(error instanceof RunExchangeError ? error.message : `the agent could not be run: ${errorMessage(error)}`);
   }
