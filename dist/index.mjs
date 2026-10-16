@@ -24,6 +24,19 @@ var sleep = (ms, options) => new Promise((resolve) => {
   signal?.addEventListener("abort", done, { once: true });
 });
 
+// ../../_tools/base/dist/json.js
+var parseJsonOr = (text, fallback) => {
+  try {
+    const value = JSON.parse(text);
+    return value;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return fallback;
+    }
+    throw error;
+  }
+};
+
 // ../gate/dist/run.js
 var RUN_WAIT_DEFAULT_S = 1800;
 var RUN_POLL_MS = 5e3;
@@ -124,7 +137,7 @@ var detailOf = (text) => {
 var headersFor = (call) => ({ "x-intentic-control": call.token, "content-type": "application/json" });
 var answerOf = async (deps, what, url, init) => {
   const response = await deps.fetch(url, init).catch((error) => {
-    throw new RunExchangeError(`${what} could not be reached: ${error instanceof Error ? error.message : String(error)}`);
+    throw new RunExchangeError(`${what} could not be reached: ${errorMessage(error)}`);
   });
   const text = await response.text();
   if (!response.ok) {
@@ -482,13 +495,7 @@ if (inputs.door === "fire") {
   console.log("woke the agent: the automation accepted the payload and the run continues without this workflow");
   process.exit(0);
 }
-var event = (() => {
-  try {
-    return eventText === "" ? void 0 : JSON.parse(eventText);
-  } catch {
-    return void 0;
-  }
-})();
+var event = eventText === "" ? void 0 : parseJsonOr(eventText, void 0);
 var request = inputs.request !== "" ? inputs.request : defaultRequest(process.env, event);
 if (request === "") {
   wiring("nothing to tell the agent: set `with: request` (no workflow context to compose one from)");
